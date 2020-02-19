@@ -100,8 +100,8 @@ preferences {
   }
 
   section ("Fluentd Server") {
-    input "fluentd_host", "text", title: "Splunk Hostname/IP", required: true
-    input "fluentd_port", "number", title: "Splunk Port", required: true
+    input "fluentd_host", "text", title: "Fluentd Hostname/IP", required: true
+    input "fluentd_port", "number", title: "Fluentd Port", required: true, defaultValue: 9880
   }
 
 }
@@ -222,7 +222,7 @@ private logField(evt) {
 
 private postapi(command) {
 	def length = command.getBytes().size().toString()
-    sendHubCommand(new physicalgraph.device.HubAction("""POST /home_things HTTP/1.1\r\nHOST: 10.100.100.38:9880\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: ${length}\r\nAccept:*/*\r\n\r\n${command}""", physicalgraph.device.Protocol.LAN, "0x0A026432:22B8"))
+    sendHubCommand(new physicalgraph.device.HubAction("""POST /home_things HTTP/1.1\r\nHOST: ${fluentd_host}:${fluentd_port}\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: ${length}\r\nAccept:*/*\r\n\r\n${command}""", physicalgraph.device.Protocol.LAN, "0x0A026432:22B8"))
     //sendHubCommand(new physicalgraph.device.HubAction("""PUT HTTP/1.1\r\nHOST: 10.2.100.50:8888\r\nContent-Type: text/json\r\nContent-Length: ${length}\r\nAccept:*/*\r\n\r\n${command}""", physicalgraph.device.Protocol.LAN, "0x0A026432:22B8"))
 }
 
