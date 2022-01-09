@@ -232,8 +232,8 @@ def callURL(apiAction, details) {
         ]
 	} else if(apiAction == 'devicecontrol-power') {
 		def login = getLoginData()
+        def deviceData = getDeviceData()
         log.debug login
-        // TODO: derive cid from MAC input (input entered on user device)
 		params = [
             method: 'POST',
             uri   : API_URL,
@@ -252,7 +252,7 @@ def callURL(apiAction, details) {
                 "phoneBrand": "SM N9005",
                 "phoneOS": "Android",
                 "traceId": timestamp(),
-                "cid": "vsaqc795414e454a9e1f4e3b4008b107",
+                "cid": deviceData.cid,
                 "configModule": "",
                 "payload": [
                         "data": [
@@ -349,12 +349,23 @@ def callURL(apiAction, details) {
 }
 
 def getLoginData() {
-	log.trace "Executing 'getLogin()'..."
+	log.trace "Executing 'getLoginData()'..."
 	
     def r = callURL('login', "")
     log.debug r.data
     r.data.result
 }
+
+def getDeviceData() {
+	log.trace "Executing 'getDeviceData()'..."
+	
+    def r = callURL('devices', "")
+    log.debug r.data
+
+	// Return first match with MAC
+    r.data.result.list.each { it.macID == macid }[0]
+}
+
 
 def MD5(s) {
 	def digest = MessageDigest.getInstance("MD5")
