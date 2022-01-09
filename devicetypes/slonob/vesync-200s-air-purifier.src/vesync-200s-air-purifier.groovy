@@ -131,8 +131,11 @@ def setAirPurifierFanMode() {
 }
 
 def setFanSpeed(speed) {
-	log.debug "Executing 'setFanSpeed'" + speed
-    
+	log.trace "Executing 'setFanSpeed'" + speed
+	
+    parseResponse(callURL('devicecontrol-fan', speed))
+	
+
     sendEvent(name: "fanSpeed", value: speed)
 }
 
@@ -260,6 +263,41 @@ def callURL(apiAction, details) {
                             "id": 0
                         ],
                         "method": "setSwitch",
+                        "source": "APP"
+                ]
+			]
+,
+        ]
+	} else if(apiAction == 'devicecontrol-fan') {
+		def login = getLoginData()
+        def deviceData = getDeviceData()
+        log.debug login
+		params = [
+            method: 'POST',
+            uri   : API_URL,
+            path  : '/cloud/v2/deviceManaged/bypassV2',
+			headers: ["User_agent": "VeSync/VeSync 3.0.51(F5321;Android 8.0.0)", "Content-Type": "application/json; charset=UTF-8"],
+			contentType: "application/json; charset=UTF-8",
+			body: [
+                "method": "bypassV2",
+                "debugMode": false,
+                "deviceRegion": "US",
+                "timeZone": "CDT",
+                "acceptLanguage": "en",
+                "accountID": login.accountID,
+                "token": login.token,
+                "appVersion": "2.5.1",
+                "phoneBrand": "SM N9005",
+                "phoneOS": "Android",
+                "traceId": timestamp(),
+                "cid": deviceData.cid,
+                "configModule": "",
+                "payload": [
+                        "data": [
+                            "id": 0,
+                            "level": details,
+                            "type": "wind"                        ],
+                        "method": "setLevel",
                         "source": "APP"
                 ]
 			]
