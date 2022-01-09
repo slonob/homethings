@@ -23,16 +23,82 @@ metadata {
 		capability "Operating State"
 		capability "Switch"
 		capability "Switch Level"
-	}
+		command "lowSpeed"
+		command "medSpeed"
+		command "highSpeed"
+
+		attribute "currentState", "string"
+		attribute "cid", "string"
+		attribute "token", "string"
+        attribute "accountID", "number"
+		attribute "accountData", "enum"
+    }
 
 
 	simulator {
 		// TODO: define status and reply messages here
 	}
 
-	tiles {
-		// TODO: define your main and details tiles here
+	tiles(scale: 2) {
+		multiAttributeTile(name:"switch", type: "lighting", width: 6, height: 4, canChangeIcon: true){
+			tileAttribute ("device.switch", key: "PRIMARY_CONTROL") {    
+				attributeState "on", action:"switch.off", label:'ON', icon:"st.Lighting.light24", backgroundColor:"#00A0DC", nextState:"turningOff"
+				attributeState "off", action:"switch.on", label:'OFF', icon:"st.Lighting.light24", backgroundColor:"#ffffff", nextState:"turningOn"
+				attributeState "turningOn", label:'TURNINGON', icon:"st.Lighting.light24", backgroundColor:"#f0b823", nextState: "turningOn"
+				attributeState "turningOff", label:'TURNINGOFF', icon:"st.Lighting.light24", backgroundColor:"#f0b823", nextState: "turningOff"
+			}   
+            tileAttribute ("device.currentState", key: "SECONDARY_CONTROL") {
+           		attributeState "LOW", label:'Fan speed set to LOW', icon:"st.Lighting.light24"
+                attributeState "MED", label:'Fan speed set to MEDIUM', icon:"st.Lighting.light24"
+                attributeState "HIGH", label:'Fan speed set to HIGH', icon:"st.Lighting.light24"
+            }
+			tileAttribute ("device.level", key: "SLIDER_CONTROL") {
+				attributeState "level", action:"switch level.setLevel"
+			}
+		}
+		standardTile("lowSpeed", "device.currentState", inactiveLabel: false, decoration: "flat", width: 2, height: 2) {
+			state "LOW", label:'LOW', action: "lowSpeed", icon:"st.Home.home30"
+  		}
+		standardTile("medSpeed", "device.currentState", inactiveLabel: false, decoration: "flat", width: 2, height: 2) {
+			state "MED", label: 'MED', action: "medSpeed", icon:"st.Home.home30"
+		}
+		standardTile("highSpeed", "device.currentState", inactiveLabel: false, decoration: "flat", width: 2, height: 2) {
+			state "HIGH", label: 'HIGH', action: "highSpeed", icon:"st.Home.home30"
+		}
+		standardTile("indicator", "device.indicatorStatus", width: 3, height: 2, inactiveLabel: false, decoration: "flat") {
+			state "when off", action:"indicator.indicatorWhenOn", icon:"st.indicators.lit-when-off"
+			state "when on", action:"indicator.indicatorNever", icon:"st.indicators.lit-when-on"
+			state "never", action:"indicator.indicatorWhenOff", icon:"st.indicators.never-lit"
+		}
+		standardTile("refresh", "device.switch", width: 6, height: 2, inactiveLabel: false, decoration: "flat") {
+			state "default", label:'Refresh', action:"refresh.refresh", icon:"st.secondary.refresh-icon"
+		}
+		main(["switch"])
+		details(["switch", "lowSpeed", "medSpeed", "highSpeed", "refresh"])
 	}
+}
+
+preferences {
+	section("VeSync Device") {
+		// TODO: put inputs here
+        input("username", "string", title: "VeSync Username", description: "VeSync username (e.g., foo@bar.com)", required: true, displayDuringSetup: true)
+        input("password", "password", title: "VeSync Password", description: "VeSync password", required: true, displayDuringSetup: true)
+        input("loginData", "list", title: "VeSync Login Data", description: "", required: false, displayDuringSetup: false)
+        input("macid", "string", title: "MAC Address", description: "MAC Address (see settings/device info)", required: true, displayDuringSetup: true)
+        input("fanSpeed", "capability.fanSpeed", title: "fanSpeed", description: "Fan Speed", required: true, displayDuringSetup: false)
+	}
+}
+
+include 'asynchttp'
+import groovy.json.JsonSlurper
+import groovy.transform.Field
+import java.security.MessageDigest
+
+@Field final String API_URL = "https://smartapi.vesync.com:443"
+
+
+def initialize() {
+   subscribe(fanSpeed, "fanSpeed", eventHandler)
 }
 
 // parse events into attributes
@@ -64,9 +130,10 @@ def setAirPurifierFanMode() {
 	// TODO: handle 'setAirPurifierFanMode' command
 }
 
-def setFanSpeed() {
-	log.debug "Executing 'setFanSpeed'"
-	// TODO: handle 'setFanSpeed' command
+def setFanSpeed(speed) {
+	log.debug "Executing 'setFanSpeed'" + speed
+    
+    sendEvent(name: "fanSpeed", value: speed)
 }
 
 def checkForFirmwareUpdate() {
@@ -90,16 +157,210 @@ def setMachineState() {
 }
 
 def on() {
-	log.debug "Executing 'on'"
-	// TODO: handle 'on' command
+	log.trace "Executing 'on()'..."
+	
+    parseResponse(callURL('devicecontrol-power', true))
+	
+	sendEvent(name: "switch", value: "on")
 }
 
 def off() {
-	log.debug "Executing 'off'"
-	// TODO: handle 'off' command
+	log.trace "Executing 'off()'..."
+	
+    parseResponse(callURL('devicecontrol-power', false))
+    
+	sendEvent(name: "switch", value: "off")
 }
 
-def setLevel() {
-	log.debug "Executing 'setLevel'"
+def parseResponse(response) {
+	log.debug "parseResponse input:" + response.data
+	def d = response.data
+	log.debug "returned msg: " + d.msg
+	log.debug "returned HTTP code: " + response.status
+
+}
+
+def setLevel(value) {
+	log.debug "Executing 'setLevel' to " + value
 	// TODO: handle 'setLevel' command
+}
+
+//
+def eventHandler(evt) {
+	log.debug evt
+    def fanSpeed = evt.device.currentState('fanSpeed')
+    log.debug "get fanspeed current state '${fanSpeed}'"
+}
+
+// TODO: implement event handlers
+def callURL(apiAction, details) {
+	log.trace "Executing 'callURL($apiAction, $details)'..."
+	
+	// log.trace "[SETTINGS] APIKEY=${settings.apikey}, ID=${settings.deviceID}, MODEL=${settings.modelNum}"
+	
+    def params
+	if(apiAction == 'devices') {
+		def login = getLoginData()
+        log.debug login
+        params = [
+            method: 'POST',
+            uri   : API_URL,
+            path  : '/cloud/v1/deviceManaged/devices',
+			headers: ["Content-Type": "application/json"],
+            body: [
+                "timeZone": "CDT",
+                "acceptLanguage": "en",
+                "accountID": login.accountID,
+                "token": login.token,
+                "content-type": "application/json",
+                "appVersion": "2.5.1",
+                "phoneBrand": "SM N9005",
+                "phoneOS": "Android",
+                "traceId": timestamp(),
+                "method": "devices",
+                "pageNo": 1,
+                "pageSize": 100
+            ]
+        ]
+	} else if(apiAction == 'devicestate') {
+        params = [
+            method: 'GET',
+            uri   : API_URL,
+            path  : '/v1/devices/state',
+			headers: ["User_agent": "VeSync/VeSync 3.0.51(F5321;Android 8.0.0)", "Content-Type": "application/json; charset=UTF-8"],
+			query: [device: settings.deviceID, model: settings.modelNum],
+        ]
+	} else if(apiAction == 'devicecontrol-power') {
+		def login = getLoginData()
+        log.debug login
+        // TODO: derive cid from MAC input (input entered on user device)
+		params = [
+            method: 'POST',
+            uri   : API_URL,
+            path  : '/cloud/v2/deviceManaged/bypassV2',
+			headers: ["User_agent": "VeSync/VeSync 3.0.51(F5321;Android 8.0.0)", "Content-Type": "application/json; charset=UTF-8"],
+			contentType: "application/json; charset=UTF-8",
+			body: [
+                "method": "bypassV2",
+                "debugMode": false,
+                "deviceRegion": "US",
+                "timeZone": "CDT",
+                "acceptLanguage": "en",
+                "accountID": login.accountID,
+                "token": login.token,
+                "appVersion": "2.5.1",
+                "phoneBrand": "SM N9005",
+                "phoneOS": "Android",
+                "traceId": timestamp(),
+                "cid": "vsaqc795414e454a9e1f4e3b4008b107",
+                "configModule": "",
+                "payload": [
+                        "data": [
+                            "enabled": details,
+                            "id": 0
+                        ],
+                        "method": "setSwitch",
+                        "source": "APP"
+                ]
+			]
+,
+        ]
+	} else if(apiAction == 'login') {
+    	log.debug "username: ${username}"
+    	log.debug "password: ${password}"
+        
+        params = [
+            method: 'POST',
+            uri   : API_URL,
+            path  : '/cloud/v1/user/login',
+			headers: ["User_agent": "VeSync/VeSync 3.0.51(F5321;Android 8.0.0)", "Content-Type": "application/json; charset=UTF-8"],
+			contentType: "application/json; charset=UTF-8",
+			body: [
+                "timeZone": "CDT",
+                "acceptLanguage": "en",
+                "email": username,
+                "password": MD5(password),
+                "userType": 1,
+                "method": "login",
+                "devToken": "",
+                "appVersion": "2.5.1",
+                "phoneBrand": "SM N9005",
+                "phoneOS": "Android",
+                "traceId": timestamp()
+            ]
+        ]
+	} else if(apiAction == 'devicecontrol-brightness') {
+        params = [
+            method: 'PUT',
+            uri   : API_URL,
+            path  : '/v1/devices/control',
+			headers: ["Content-Type": "application/json"],
+			contentType: "application/json",
+			body: [device: settings.deviceID, model: settings.modelNum, cmd: ["name": "brightness", "value": details]],
+        ]
+    }
+    
+	
+    log.debug params
+    log.debug "APIACTION=${apiAction}"
+    log.debug "METHOD=${params.method}"
+    log.debug "URI=${params.uri}${params.path}"
+    log.debug "HEADERS=${params.headers}"
+    log.debug "QUERY=${params.query}"
+    log.debug "BODY=${params.body}"
+	
+	
+	try {
+		if(params.method == 'GET') {
+			httpGet(params) { resp ->
+				//log.debug "RESP="
+				//log.debug "HEADERS="+resp.headers
+				//log.debug "DATA="+resp.data
+				
+				log.debug "response.data="+resp.data
+				
+				return resp.data
+			}
+		} else if(params.method == 'PUT') {
+			httpPutJson(params) { resp ->
+				//log debug "RESP="
+				//log.debug "HEADERS="+resp.headers
+				//log.debug "DATA="+resp.data
+				
+				log.debug "response.data="+resp.data
+				
+				return resp.data
+			}
+		} else if(params.method == 'POST') {
+			httpPostJson(params) { resp ->
+				log.debug "response.data="+resp.data
+				// This returns the data
+                resp
+			}
+		}
+	} catch (groovyx.net.http.HttpResponseException e) {
+		log.error "callURL() >>>>>>>>>>>>>>>> ERROR >>>>>>>>>>>>>>>>"
+		log.error "Error: e.statusCode ${e.statusCode}"
+		log.error "${e}"
+		log.error "callURL() <<<<<<<<<<<<<<<< ERROR <<<<<<<<<<<<<<<<"
+		
+		return 'unknown'
+	}
+}
+
+def getLoginData() {
+	log.trace "Executing 'getLogin()'..."
+	
+    def r = callURL('login', "")
+    log.debug r.data
+    r.data.result
+}
+
+def MD5(s) {
+	def digest = MessageDigest.getInstance("MD5")
+	new BigInteger(1,digest.digest(s.getBytes())).toString(16).padLeft(32,"0")
+} 
+
+def timestamp() {
+	Calendar.getInstance(TimeZone.getTimeZone('GMT')).getTimeInMillis().toString().substring(0,10)
 }
