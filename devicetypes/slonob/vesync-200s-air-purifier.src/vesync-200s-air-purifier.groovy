@@ -14,20 +14,13 @@
  */
 metadata {
 	definition (name: "VeSync 200S Air Purifier", namespace: "slonob", author: "Jarrod Stenberg", cstHandler: true) {
-		capability "Air Purifier Fan Mode"
+		//capability "Air Purifier Fan Mode"
 		capability "Fan Speed"
-		capability "Filter State"
-		capability "Filter Status"
-		capability "Firmware Update"
-		capability "Mode"
-		capability "Operating State"
+		//capability "Filter State"
+		//capability "Filter Status"
+		//capability "Operating State"
 		capability "Switch"
-		capability "Switch Level"
-		command "lowSpeed"
-		command "medSpeed"
-		command "highSpeed"
 
-		attribute "currentState", "string"
 		attribute "cid", "string"
 		attribute "token", "string"
         attribute "accountID", "number"
@@ -47,34 +40,9 @@ metadata {
 				attributeState "turningOn", label:'TURNINGON', icon:"st.Lighting.light24", backgroundColor:"#f0b823", nextState: "turningOn"
 				attributeState "turningOff", label:'TURNINGOFF', icon:"st.Lighting.light24", backgroundColor:"#f0b823", nextState: "turningOff"
 			}   
-            tileAttribute ("device.currentState", key: "SECONDARY_CONTROL") {
-           		attributeState "LOW", label:'Fan speed set to LOW', icon:"st.Lighting.light24"
-                attributeState "MED", label:'Fan speed set to MEDIUM', icon:"st.Lighting.light24"
-                attributeState "HIGH", label:'Fan speed set to HIGH', icon:"st.Lighting.light24"
-            }
-			tileAttribute ("device.level", key: "SLIDER_CONTROL") {
-				attributeState "level", action:"switch level.setLevel"
-			}
-		}
-		standardTile("lowSpeed", "device.currentState", inactiveLabel: false, decoration: "flat", width: 2, height: 2) {
-			state "LOW", label:'LOW', action: "lowSpeed", icon:"st.Home.home30"
-  		}
-		standardTile("medSpeed", "device.currentState", inactiveLabel: false, decoration: "flat", width: 2, height: 2) {
-			state "MED", label: 'MED', action: "medSpeed", icon:"st.Home.home30"
-		}
-		standardTile("highSpeed", "device.currentState", inactiveLabel: false, decoration: "flat", width: 2, height: 2) {
-			state "HIGH", label: 'HIGH', action: "highSpeed", icon:"st.Home.home30"
-		}
-		standardTile("indicator", "device.indicatorStatus", width: 3, height: 2, inactiveLabel: false, decoration: "flat") {
-			state "when off", action:"indicator.indicatorWhenOn", icon:"st.indicators.lit-when-off"
-			state "when on", action:"indicator.indicatorNever", icon:"st.indicators.lit-when-on"
-			state "never", action:"indicator.indicatorWhenOff", icon:"st.indicators.never-lit"
-		}
-		standardTile("refresh", "device.switch", width: 6, height: 2, inactiveLabel: false, decoration: "flat") {
-			state "default", label:'Refresh', action:"refresh.refresh", icon:"st.secondary.refresh-icon"
 		}
 		main(["switch"])
-		details(["switch", "lowSpeed", "medSpeed", "highSpeed", "refresh"])
+		details(["switch"])
 	}
 }
 
@@ -83,14 +51,18 @@ preferences {
 		// TODO: put inputs here
         input("username", "string", title: "VeSync Username", description: "VeSync username (e.g., foo@bar.com)", required: true, displayDuringSetup: true)
         input("password", "password", title: "VeSync Password", description: "VeSync password", required: true, displayDuringSetup: true)
-        input("loginData", "list", title: "VeSync Login Data", description: "", required: false, displayDuringSetup: false)
         input("macid", "string", title: "MAC Address", description: "MAC Address (see settings/device info)", required: true, displayDuringSetup: true)
-        input("fanSpeed", "capability.fanSpeed", title: "fanSpeed", description: "Fan Speed", required: true, displayDuringSetup: false)
 	}
 }
 
+def installed() {
+  //subscribe(motion, "motion", myHandler)
+}
+
+
 include 'asynchttp'
 import groovy.json.JsonSlurper
+import groovy.json.JsonBuilder
 import groovy.transform.Field
 import java.security.MessageDigest
 
@@ -133,16 +105,16 @@ def setAirPurifierFanMode() {
 def setFanSpeed(speed) {
 	log.trace "Executing 'setFanSpeed'" + speed
 	
-    parseResponse(callURL('devicecontrol-fan', speed))
-	
+    if (speed == 0) {
+    	fanOff()
+    } else {
+    	parseResponse(callURL('devicecontrol-fan', speed))
+		sendEvent(name: "switch", value: "on")
+	}	
 
     sendEvent(name: "fanSpeed", value: speed)
 }
 
-def checkForFirmwareUpdate() {
-	log.debug "Executing 'checkForFirmwareUpdate'"
-	// TODO: handle 'checkForFirmwareUpdate' command
-}
 
 def updateFirmware() {
 	log.debug "Executing 'updateFirmware'"
@@ -157,6 +129,14 @@ def setMode() {
 def setMachineState() {
 	log.debug "Executing 'setMachineState'"
 	// TODO: handle 'setMachineState' command
+}
+
+def fanOff() {
+	log.trace "Executing 'on()'..."
+	
+    parseResponse(callURL('devicecontrol-power', false))
+	
+	sendEvent(name: "switch", value: "off")
 }
 
 def on() {
@@ -270,7 +250,7 @@ def callURL(apiAction, details) {
         ]
 	} else if(apiAction == 'devicecontrol-fan') {
 		def login = getLoginData()
-        def deviceData = getDeviceData()
+        def cid = getCid()
         log.debug login
 		params = [
             method: 'POST',
@@ -290,7 +270,7 @@ def callURL(apiAction, details) {
                 "phoneBrand": "SM N9005",
                 "phoneOS": "Android",
                 "traceId": timestamp(),
-                "cid": deviceData.cid,
+                "cid": cid,
                 "configModule": "",
                 "payload": [
                         "data": [
@@ -388,20 +368,44 @@ def callURL(apiAction, details) {
 
 def getLoginData() {
 	log.trace "Executing 'getLoginData()'..."
-	
-    def r = callURL('login', "")
-    log.debug r.data
-    r.data.result
+	// Check null
+    //updateDataValue("loginData","")
+	if (!getDataValue("loginData")?.trim()) {
+    	def r = callURL('login', "")
+    	//log.debug r.data
+        // serialize and store
+        def builder = new JsonBuilder()
+        builder(r.data.result)
+    	updateDataValue("loginData", builder.toString())
+        r.data.result
+    } else {
+        // deserialize
+        def slurper = new JsonSlurper()
+    	slurper.parseText(getDataValue("loginData"))
+    }
+     
+}
+
+def getCid() {
+	log.trace "Executing 'getCid()'..."
+	// Check null
+	if (!getDataValue("cid")?.trim()) {
+        def device = getDeviceData()
+    	updateDataValue("cid", device.cid)
+        device.cid
+    } else {
+    	getDataValue("cid")
+    }
 }
 
 def getDeviceData() {
 	log.trace "Executing 'getDeviceData()'..."
-	
     def r = callURL('devices', "")
-    log.debug r.data
+    // Return first match with MAC
+    def device = r.data.result.list.each { it.macID == macid }[0]
+    //log.debug r.data
 
-	// Return first match with MAC
-    r.data.result.list.each { it.macID == macid }[0]
+    device
 }
 
 
